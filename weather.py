@@ -36,6 +36,7 @@ __version__ = "0.0.12"
 #   Modified By: Gene Liverman    12/30/2017 & multiple times since
 ###############################################################################
 # standard imports
+import configparser
 import datetime
 import os
 import platform
@@ -50,8 +51,6 @@ import pygame
 # from pygame.locals import *
 import requests
 
-# local imports
-import config
 
 # globals
 MOUSE_X, MOUSE_Y = 0, 0
@@ -60,6 +59,57 @@ UNICODE_DEGREE = u'\xb0'
 MODE = 'd'  # Default to weather mode. Showing daily weather first.
 D_COUNT = 1
 H_COUNT = 0
+
+default_config = configparser.ConfigParser()
+default_config.read('config.ini.sample')
+
+user_config = configparser.ConfigParser()
+user_config.read('config.ini')
+
+
+def get_config_setting(section, key, kind):
+    """
+    Checks to see if the section and key exist in user_config and returns
+    the key's value if it does. If either does not exist then the value of
+    the key in default_config is returned.
+    """
+    if kind == 'boolean':
+        if section in user_config.sections() and user_config[section].getboolean(key):
+            value = user_config[section].getboolean(key, default_config[section].getboolean(key))
+        else:
+            value = default_config[section].getboolean(key)
+    elif kind == 'float':
+        if section in user_config.sections() and user_config[section].getfloat(key):
+            value = user_config[section].getfloat(key)
+        else:
+            value = default_config[section].getfloat(key)
+    elif kind == 'int':
+        if section in user_config.sections() and user_config[section].getint(key):
+            value = user_config[section].getint(key)
+        else:
+            value = default_config[section].getint(key)
+    elif kind == 'string':
+        if section in user_config.sections() and user_config[section].get(key):
+            value = user_config[section].get(key)
+        else:
+            value = default_config[section].get(key)
+    return value
+
+
+DS_API_KEY = get_config_setting('LOCAL_SETTINGS', 'DS_API_KEY', 'string')
+LAT = get_config_setting('LOCAL_SETTINGS', 'LAT', 'float')
+LON = get_config_setting('LOCAL_SETTINGS', 'LON', 'float')
+UNITS = get_config_setting('LOCAL_SETTINGS', 'UNITS', 'string')
+LANG = get_config_setting('LOCAL_SETTINGS', 'LANG', 'string')
+
+FULLSCREEN = get_config_setting('DISPLAY', 'FULLSCREEN', 'boolean')
+LARGE_ICON_OFFSET = get_config_setting('DISPLAY', 'LARGE_ICON_OFFSET', 'float')
+
+DS_CHECK_INTERVAL = get_config_setting('TIMING', 'DS_CHECK_INTERVAL', 'int')
+DAILY_PAUSE = get_config_setting('TIMING', 'DAILY_PAUSE', 'int')
+HOURLY_PAUSE = get_config_setting('TIMING', 'HOURLY_PAUSE', 'int')
+INFO_SCREEN_PAUSE = get_config_setting('TIMING', 'INFO_SCREEN_PAUSE', 'int')
+INFO_SCREEN_DELAY = get_config_setting('TIMING', 'INFO_SCREEN_DELAY', 'int')
 
 
 def exit_gracefully(signum, frame):
@@ -136,11 +186,11 @@ def get_abbreviation(phrase):
     return abbreviation
 
 
-def get_windspeed_abbreviation(unit=config.UNITS):
+def get_windspeed_abbreviation(unit=UNITS):
     return get_abbreviation(units_decoder(unit)['windSpeed'])
 
 
-def get_temperature_letter(unit=config.UNITS):
+def get_temperature_letter(unit=UNITS):
     return units_decoder(unit)['temperature'].split(' ')[-1][0].upper()
 
 
@@ -248,7 +298,7 @@ class MyDisplay:
         # for fontname in pygame.font.get_fonts():
         #        print(fontname)
 
-        if config.FULLSCREEN:
+        if FULLSCREEN:
             self.xmax = pygame.display.Info().current_w - 35
             self.ymax = pygame.display.Info().current_h - 5
             if self.xmax <= 1024:
@@ -271,15 +321,15 @@ class MyDisplay:
         "Destructor to make sure pygame shuts down, etc."
 
     def get_forecast(self):
-        if (time.time() - self.last_update_check) > config.DS_CHECK_INTERVAL:
+        if (time.time() - self.last_update_check) > DS_CHECK_INTERVAL:
             self.last_update_check = time.time()
             try:
-                self.weather = forecast(config.DS_API_KEY,
-                                        config.LAT,
-                                        config.LON,
+                self.weather = forecast(DS_API_KEY,
+                                        LAT,
+                                        LON,
                                         exclude='minutely',
-                                        units=config.UNITS,
-                                        lang=config.LANG)
+                                        units=UNITS,
+                                        lang=LANG)
 
                 sunset_today = datetime.datetime.fromtimestamp(
                     self.weather.daily[0].sunsetTime)
@@ -428,7 +478,7 @@ class MyDisplay:
         if icon_size_y < 90:
             icon_y_offset = (90 - icon_size_y) / 2
         else:
-            icon_y_offset = config.LARGE_ICON_OFFSET
+            icon_y_offset = LARGE_ICON_OFFSET
 
         self.screen.blit(icon, (self.xmax *
                                 (subwindow_centers * c_times) -
@@ -872,21 +922,21 @@ while RUNNING:
         NON_WEATHER_TIMEOUT += 1
         D_COUNT = 0
         H_COUNT = 0
-        # Default in config.py.sample: pause for 5 minutes on info screen.
-        if NON_WEATHER_TIMEOUT > (config.INFO_SCREEN_PAUSE * 10):
+        # Default in config.ini.sample: pause for 5 minutes on info screen.
+        if NON_WEATHER_TIMEOUT > (INFO_SCREEN_PAUSE * 10):
             MODE = 'd'
             D_COUNT = 1
             syslog.syslog("Switching to weather mode")
     else:
         NON_WEATHER_TIMEOUT = 0
         PERIODIC_INFO_ACTIVATION += 1
-        # Default in config.py.sample: flip between 2 weather screens
+        # Default in config.ini.sample: flip between 2 weather screens
         # for 15 minutes before showing info screen.
-        if PERIODIC_INFO_ACTIVATION > (config.INFO_SCREEN_DELAY * 10):
+        if PERIODIC_INFO_ACTIVATION > (INFO_SCREEN_DELAY * 10):
             MODE = 'i'
             syslog.syslog("Switching to info mode")
-        elif (PERIODIC_INFO_ACTIVATION % (((config.DAILY_PAUSE * D_COUNT) +
-              (config.HOURLY_PAUSE * H_COUNT)) * 10)) == 0:
+        elif (PERIODIC_INFO_ACTIVATION % (((DAILY_PAUSE * D_COUNT) +
+              (HOURLY_PAUSE * H_COUNT)) * 10)) == 0:
             if MODE == 'd':
                 syslog.syslog("Switching to HOURLY")
                 MODE = 'h'
